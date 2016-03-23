@@ -1596,6 +1596,10 @@ __kmpc_omp_taskyield( ident_t *loc_ref, kmp_int32 gtid, int end_part )
     return TASK_CURRENT_NOT_QUEUED;
 }
 
+void
+__kmpc_omp_set_task_affinity(kmp_uint32 kind, kmp_uint64 affinity, kmp_uint32 strict)
+{
+}
 
 #if OMP_40_ENABLED
 //-------------------------------------------------------------------------------------

@@ -291,6 +291,7 @@
 %ifdef OMP_30
     __kmpc_omp_task_alloc                   191
     __kmpc_omp_task                         192
+    __kmpc_omp_set_task_affinity            600
     __kmpc_omp_taskwait                     193
     __kmpc_omp_task_begin_if0               196
     __kmpc_omp_task_complete_if0            197

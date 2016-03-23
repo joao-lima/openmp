@@ -3363,6 +3363,10 @@ void __kmpc_omp_task_complete( ident_t *loc_ref, kmp_int32 gtid, kmp_task_t *tas
 
 /* ------------------------------------------------------------------------ */
 
+
+KMP_EXPORT void __kmpc_omp_set_task_affinity(kmp_uint32 kind, kmp_uint64 affinity, kmp_uint32 strict);
+
+
 #if OMP_40_ENABLED
 
 KMP_EXPORT void __kmpc_taskgroup( ident_t * loc, int gtid );
