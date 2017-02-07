@@ -915,10 +915,23 @@ PARALLEL_LOOP_START(xexpand(KMP_API_NAME_GOMP_PARALLEL_LOOP_RUNTIME_START),
 //
 // Tasking constructs
 //
+/* GOMP_task/GOMP_taskloop* flags argument.  */
+#define GOMP_TASK_FLAG_UNTIED           (1 << 0)
+#define GOMP_TASK_FLAG_FINAL            (1 << 1)
+#define GOMP_TASK_FLAG_MERGEABLE        (1 << 2)
+#define GOMP_TASK_FLAG_DEPEND           (1 << 3)
+#define GOMP_TASK_FLAG_PRIORITY         (1 << 4)
+#define GOMP_TASK_FLAG_UP               (1 << 8)
+#define GOMP_TASK_FLAG_GRAINSIZE        (1 << 9)
+#define GOMP_TASK_FLAG_IF               (1 << 10)
+#define GOMP_TASK_FLAG_NOGROUP          (1 << 11)
 
 void
 xexpand(KMP_API_NAME_GOMP_TASK)(void (*func)(void *), void *data, void (*copy_func)(void *, void *),
-  long arg_size, long arg_align, bool if_cond, unsigned gomp_flags)
+  long arg_size, long arg_align, bool if_cond, unsigned gomp_flags,
+  void **depend, /* new GOMP-4.0 */
+  int priority   /* new GOMP-4.5 */
+)
 {
     MKLOC(loc, "GOMP_task");
     int gtid = __kmp_entry_gtid();
@@ -928,11 +941,11 @@ xexpand(KMP_API_NAME_GOMP_TASK)(void (*func)(void *), void *data, void (*copy_fu
     KA_TRACE(20, ("GOMP_task: T#%d\n", gtid));
 
     // The low-order bit is the "tied" flag
-    if (gomp_flags & 1) {
+    if (gomp_flags & GOMP_TASK_FLAG_UNTIED) {
         input_flags->tiedness = 1;
     }
     // The second low-order bit is the "final" flag
-    if (gomp_flags & 2) {
+    if (gomp_flags & GOMP_TASK_FLAG_FINAL) {
         input_flags->final = 1;
     }
     input_flags->native = 1;
@@ -960,37 +973,92 @@ xexpand(KMP_API_NAME_GOMP_TASK)(void (*func)(void *), void *data, void (*copy_fu
             KMP_MEMCPY(task->shareds, data, arg_size);
         }
     }
+    /* depend */
+    kmp_int32 ndeps;
+    if (gomp_flags & GOMP_TASK_FLAG_DEPEND) /* depend clauses */
+      /* see libgomp, task.c  */
+      ndeps = (kmp_int32)(uintptr_t)depend[0];
+    else
+      ndeps = 0;
 
-    if (if_cond) {
+    if (ndeps ==0)
+    {
+      if (if_cond)
         __kmpc_omp_task(&loc, gtid, task);
+      else {
+#if OMPT_SUPPORT
+          ompt_thread_info_t oldInfo;
+          kmp_info_t *thread;
+          kmp_taskdata_t *taskdata;
+          if (ompt_enabled) {
+              // Store the threads states and restore them after the task
+              thread = __kmp_threads[ gtid ];
+              taskdata = KMP_TASK_TO_TASKDATA(task);
+              oldInfo = thread->th.ompt_thread_info;
+              thread->th.ompt_thread_info.wait_id = 0;
+              thread->th.ompt_thread_info.state = ompt_state_work_parallel;
+              thread->th.ompt_thread_info.parallel_id = 0;
+              taskdata->ompt_task_info.frame.exit_runtime_frame =
+                  __builtin_frame_address(0);
+          }
+#endif
+          __kmpc_omp_task_begin_if0(&loc, gtid, task);
+          func(data);
+          __kmpc_omp_task_complete_if0(&loc, gtid, task);
+
+#if OMPT_SUPPORT
+          if (ompt_enabled) {
+              thread->th.ompt_thread_info = oldInfo;
+              taskdata->ompt_task_info.frame.exit_runtime_frame = 0;
+          }
+#endif
+      }
     }
-    else {
-#if OMPT_SUPPORT
-        ompt_thread_info_t oldInfo;
-        kmp_info_t *thread;
-        kmp_taskdata_t *taskdata;
-        if (ompt_enabled) {
-            // Store the threads states and restore them after the task
-            thread = __kmp_threads[ gtid ];
-            taskdata = KMP_TASK_TO_TASKDATA(task);
-            oldInfo = thread->th.ompt_thread_info;
-            thread->th.ompt_thread_info.wait_id = 0;
-            thread->th.ompt_thread_info.state = ompt_state_work_parallel;
-            taskdata->ompt_task_info.frame.exit_runtime_frame =
-                __builtin_frame_address(0);
-        }
-#endif
+    else /* dependence */
+    {
+      kmp_depend_info_t dep_list[ndeps];
 
-        __kmpc_omp_task_begin_if0(&loc, gtid, task);
-        func(data);
-        __kmpc_omp_task_complete_if0(&loc, gtid, task);
+      int count_out = (int) (uintptr_t)depend[1]; /* for 0..count_out: out dependences */
+
+      /* depend[i+2] is the address on which to compute dependency */
+      for (kmp_int32 i=0; i<ndeps; ++i)
+      {
+        dep_list[i].base_addr = (uintptr_t)depend[i+2];
+        dep_list[i].len       = 1;
+        dep_list[i].flags.in  = 1;
+        dep_list[i].flags.out = (i<count_out ? 1: 0);
+      }
+      if (if_cond)
+        __kmpc_omp_task_with_deps( &loc, gtid, task, ndeps, dep_list, 0, 0 );
+      else {
+          __kmpc_omp_wait_deps( &loc, gtid, ndeps, dep_list, 0, 0 );
+#if OMPT_SUPPORT
+          ompt_thread_info_t oldInfo;
+          kmp_info_t *thread;
+          kmp_taskdata_t *taskdata;
+          if (ompt_enabled) {
+              // Store the threads states and restore them after the task
+              thread = __kmp_threads[ gtid ];
+              taskdata = KMP_TASK_TO_TASKDATA(task);
+              oldInfo = thread->th.ompt_thread_info;
+              thread->th.ompt_thread_info.wait_id = 0;
+              thread->th.ompt_thread_info.state = ompt_state_work_parallel;
+              thread->th.ompt_thread_info.parallel_id = 0;
+              taskdata->ompt_task_info.frame.exit_runtime_frame =
+                  __builtin_frame_address(0);
+          }
+#endif
+          __kmpc_omp_task_begin_if0(&loc, gtid, task);
+          func(data);
+          __kmpc_omp_task_complete_if0(&loc, gtid, task);
 
 #if OMPT_SUPPORT
-        if (ompt_enabled) {
-            thread->th.ompt_thread_info = oldInfo;
-            taskdata->ompt_task_info.frame.exit_runtime_frame = NULL;
-        }
+          if (ompt_enabled) {
+              thread->th.ompt_thread_info = oldInfo;
+              taskdata->ompt_task_info.frame.exit_runtime_frame = 0;
+          }
 #endif
+      }
     }
 
     KA_TRACE(20, ("GOMP_task exit: T#%d\n", gtid));
