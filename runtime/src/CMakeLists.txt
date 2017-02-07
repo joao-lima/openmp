@@ -310,6 +310,12 @@ else()
       install(CODE "execute_process(COMMAND \"\${CMAKE_COMMAND}\" -E create_symlink \"${LIBOMP_LIB_FILE}\"
         \"${alias}${LIBOMP_LIBRARY_SUFFIX}\" WORKING_DIRECTORY
         \$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/lib${LIBOMP_LIBDIR_SUFFIX})")
+    install(CODE "execute_process(COMMAND \"\${CMAKE_COMMAND}\" -E create_symlink \"${LIBOMP_LIB_FILE}\"
+      \"${alias}${LIBOMP_LIBRARY_SUFFIX}.1\" WORKING_DIRECTORY
+      \$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/lib${LIBOMP_LIBDIR_SUFFIX})")
+    install(CODE "execute_process(COMMAND \"\${CMAKE_COMMAND}\" -E create_symlink \"${LIBOMP_LIB_FILE}\"
+      \"${alias}${LIBOMP_LIBRARY_SUFFIX}.1.0.0\" WORKING_DIRECTORY
+      \$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/lib${LIBOMP_LIBDIR_SUFFIX})")
     endforeach()
   endif()
 endif()
